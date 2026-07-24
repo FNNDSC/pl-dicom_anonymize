@@ -4,21 +4,25 @@ from pathlib import Path
 from argparse import ArgumentParser, Namespace, ArgumentDefaultsHelpFormatter
 
 from chris_plugin import chris_plugin, PathMapper
+import pydicom
 
 __version__ = '1.0.0'
 
 DISPLAY_TITLE = r"""
-ChRIS Plugin Template Title
+       _           _ _                                                              _         
+      | |         | (_)                                                            (_)        
+ _ __ | |______ __| |_  ___ ___  _ __ ___    __ _ _ __   ___  _ __  _   _ _ __ ___  _ _______ 
+| '_ \| |______/ _` | |/ __/ _ \| '_ ` _ \  / _` | '_ \ / _ \| '_ \| | | | '_ ` _ \| |_  / _ \
+| |_) | |     | (_| | | (_| (_) | | | | | || (_| | | | | (_) | | | | |_| | | | | | | |/ /  __/
+| .__/|_|      \__,_|_|\___\___/|_| |_| |_| \__,_|_| |_|\___/|_| |_|\__, |_| |_| |_|_/___\___|
+| |                                     ______                       __/ |                    
+|_|                                    |______|                     |___/                     
 """
 
 
-parser = ArgumentParser(description='!!!CHANGE ME!!! An example ChRIS plugin which '
-                                    'counts the number of occurrences of a given '
-                                    'word in text files.',
+parser = ArgumentParser(description='A ChRIS plugin to anonymize header metadata in DICOM files',
                         formatter_class=ArgumentDefaultsHelpFormatter)
-parser.add_argument('-w', '--word', required=True, type=str,
-                    help='word to count')
-parser.add_argument('-p', '--pattern', default='**/*.txt', type=str,
+parser.add_argument('-p', '--pattern', default='**/*.dcm', type=str,
                     help='input file filter glob')
 parser.add_argument('-V', '--version', action='version',
                     version=f'%(prog)s {__version__}')
@@ -30,7 +34,7 @@ parser.add_argument('-V', '--version', action='version',
 # documentation: https://fnndsc.github.io/chris_plugin/chris_plugin.html#chris_plugin
 @chris_plugin(
     parser=parser,
-    title='My ChRIS plugin',
+    title='A ChRIS plugin to anonymize DICOM files',
     category='',                 # ref. https://chrisstore.co/plugins
     min_memory_limit='100Mi',    # supported units: Mi, Gi
     min_cpu_limit='1000m',       # millicores, e.g. "1000m" = 1 CPU core
@@ -56,14 +60,11 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
     #
     # Refer to the documentation for more options, examples, and advanced uses e.g.
     # adding a progress bar and parallelism.
-    mapper = PathMapper.file_mapper(inputdir, outputdir, glob=options.pattern, suffix='.count.txt')
+    mapper = PathMapper.file_mapper(inputdir, outputdir, glob=options.pattern, fail_if_empty=False)
     for input_file, output_file in mapper:
-        # The code block below is a small and easy example of how to use a ``PathMapper``.
-        # It is recommended that you put your functionality in a helper function, so that
-        # it is more legible and can be unit tested.
-        data = input_file.read_text()
-        frequency = data.count(options.word)
-        output_file.write_text(str(frequency))
+        ds = pydicom.dcmread(input_file)
+        ds.save_as(output_file)
+
 
 
 if __name__ == '__main__':

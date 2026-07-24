@@ -19,18 +19,18 @@ def get_version(rel_path: str) -> str:
 
 
 setup(
-    name='chris-plugin-template',
-    version=get_version('app.py'),
-    description='A ChRIS DS plugin template',
+    name='dicom_anonymize',
+    version=get_version('dicom_anonymize.py'),
+    description='A ChRIS plugin to anonymize header metadata in DICOM files',
     author='FNNDSC',
     author_email='dev@babyMRI.org',
-    url='https://github.com/FNNDSC/python-chrisapp-template',
-    py_modules=['app'],
+    url='https://github.com/FNNDSC/pl-dicom_anony',
+    py_modules=['dicom_anonymize'],
     install_requires=['chris_plugin'],
     license='MIT',
     entry_points={
         'console_scripts': [
-            'commandname = app:main'
+            'dicom_anonymize = dicom_anonymize:main'
         ]
     },
     classifiers=[
