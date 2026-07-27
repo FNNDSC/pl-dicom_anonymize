@@ -1,10 +1,39 @@
 #!/usr/bin/env python
-
+import json
+import ast
 from pathlib import Path
 from argparse import ArgumentParser, Namespace, ArgumentDefaultsHelpFormatter
 
 from chris_plugin import chris_plugin, PathMapper
 import pydicom
+from dicomanonymizer.simpledicomanonymizer import (
+    anonymize_dataset,
+    ActionsMapNameFunctions,
+)
+
+
+def load_dictionary(dictionary_string: str):
+    """
+    Convert Kitware dicom-anonymizer JSON dictionary
+    into anonymization actions.
+    """
+
+    dictionary = json.loads(dictionary_string)
+
+    actions = {}
+
+    for tag, action_name in dictionary.items():
+        dicom_tag = ast.literal_eval(tag)
+
+        action = (
+            ActionsMapNameFunctions[action_name]
+            .value
+            .function
+        )
+
+        actions[dicom_tag] = action
+
+    return actions
 
 __version__ = '1.0.0'
 
@@ -26,7 +55,18 @@ parser.add_argument('-p', '--pattern', default='**/*.dcm', type=str,
                     help='input file filter glob')
 parser.add_argument('-V', '--version', action='version',
                     version=f'%(prog)s {__version__}')
-
+parser.add_argument(
+    "--dictionary",
+    type=str,
+    required=False,
+    help="Anonymization dictionary as JSON string"
+)
+parser.add_argument(
+    "--deletePrivateTags",
+    action="store_true",
+    default=False,
+    help="Remove DICOM private tags"
+)
 
 # The main function of this *ChRIS* plugin is denoted by this ``@chris_plugin`` "decorator."
 # Some metadata about the plugin is specified here. There is more metadata specified in setup.py.
@@ -60,9 +100,20 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
     #
     # Refer to the documentation for more options, examples, and advanced uses e.g.
     # adding a progress bar and parallelism.
+    if options.dictionary:
+        rules = load_dictionary(
+            options.dictionary
+        )
+    else:
+        rules = {}
     mapper = PathMapper.file_mapper(inputdir, outputdir, glob=options.pattern, fail_if_empty=False)
     for input_file, output_file in mapper:
-        ds = pydicom.dcmread(input_file)
+        ds = pydicom.dcmread(input_file, force=False)
+        anonymize_dataset(
+            ds,
+            extra_anonymization_rules=rules,
+            delete_private_tags=options.deletePrivateTags
+        )
         ds.save_as(output_file)
 
 
