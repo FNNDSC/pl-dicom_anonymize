@@ -25,7 +25,7 @@ setup(
     author='FNNDSC',
     author_email='dev@babyMRI.org',
     url='https://github.com/FNNDSC/pl-dicom_anony',
-    py_modules=['dicom_anonymize'],
+    py_modules=['dicom_anonymize','safety'],
     install_requires=['chris_plugin'],
     license='MIT',
     entry_points={

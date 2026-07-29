@@ -15,4 +15,4 @@ def test_cli_help():
     assert result.returncode == 0
 
     assert "--dictionary" in result.stdout
-    assert "--deletePrivateTags" in result.stdout
+    assert "--keepPrivateTags" in result.stdout
