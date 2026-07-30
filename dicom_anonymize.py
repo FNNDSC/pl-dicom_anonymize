@@ -1,25 +1,19 @@
 #!/usr/bin/env python
-import json
 import ast
+import json
+import os
 import sys
 import time
+from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser, Namespace
 from pathlib import Path
-from argparse import ArgumentParser, Namespace, ArgumentDefaultsHelpFormatter
-import os
-from chris_plugin import chris_plugin, PathMapper
-import functools
+
+from chris_plugin import PathMapper, chris_plugin
+from dicomanonymizer.anonymizer import parse_dictionary_argument
 from dicomanonymizer.simpledicomanonymizer import (
-    anonymize_dataset,
     ActionsMapNameFunctions,
-)
-from dicomanonymizer.simpledicomanonymizer import (
     anonymize_dicom_file,
-    dictionary as _uid_dictionary,  # the module-global old-UID -> new-UID map
 )
-from dicomanonymizer.anonymizer import (
-    parse_dictionary_argument,
-    parse_tag_actions_arguments,
-)
+
 from safety import (
     FileResult,
     Status,
@@ -52,23 +46,25 @@ DISPLAY_TITLE = r"""
 
 parser = ArgumentParser(description='A ChRIS plugin to anonymize header metadata in DICOM files',
                         formatter_class=ArgumentDefaultsHelpFormatter)
-parser.add_argument('-p', '--pattern', default='**/*.dcm', type=str,
-                    help='input file filter glob')
-parser.add_argument('-V', '--version', action='version',
-                    version=f'%(prog)s {__version__}')
+parser.add_argument(
+    "-p", "--pattern", default="**/*.dcm", type=str, help="input file filter glob"
+)
+parser.add_argument(
+    "-V", "--version", action="version", version=f"%(prog)s {__version__}"
+)
 parser.add_argument(
     "--dictionary",
     type=str,
     default="{}",
     metavar="JSON",
     required=False,
-    help="Anonymization dictionary as JSON string"
+    help="Anonymization dictionary as JSON string",
 )
 parser.add_argument(
     "--keepPrivateTags",
     action="store_true",
     default=False,
-    help="Keep DICOM private tags"
+    help="Keep DICOM private tags",
 )
 parser.add_argument(
     "--copyNonDicom",
@@ -104,7 +100,7 @@ parser.add_argument(
     help=(
         "Comma-separated list of DICOM keyword names (e.g. "
         "'InstitutionName,ReferringPhysicianName') that you have "
-        "intentionally configured --tagActions/--dictionaryFile to KEEP "
+        "intentionally configured --dictionary/--dictionaryFile to KEEP "
         "unchanged, and are explicitly acknowledging as retained rather "
         "than de-identified. Without this, the plugin's independent "
         "output verification treats any of the core identifying elements "
@@ -126,6 +122,7 @@ parser.add_argument(
         "of additional/overriding {tag: action} rules. The path must be "
         "reachable inside the container -- typically a file that lives "
         "inside inputdir; give the path as inputdir-relative or absolute. "
+        "Rules from --dictionaryFile are applied on top of --dictionary. "
         "Default: None (no dictionary overrides; PS3.15 2023e defaults apply)."
     ),
 )
@@ -150,6 +147,7 @@ parser.add_argument(
         "Default: False (stop at first failure)."
     ),
 )
+
 def load_dictionary(dictionary_string: str):
     """
     Convert Kitware dicom-anonymizer JSON dictionary
@@ -174,15 +172,6 @@ def load_dictionary(dictionary_string: str):
         actions[dicom_tag] = action
 
     return actions
-
-def _build_extra_rules(options) -> dict:
-    rules: dict = {}
-    tag_actions = json.loads(options.tag_action)
-    if tag_actions:
-        parse_tag_actions_arguments(tag_actions, rules)
-    if options.dictionaryFile:
-        parse_dictionary_argument(options.dictionaryFile, rules)
-    return rules
 
 def _process_one(
     input_path: Path,
