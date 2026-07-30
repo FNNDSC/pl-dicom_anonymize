@@ -10,6 +10,18 @@ workflows, including recursive directory traversal, independent output
 verification, machine-readable reporting, safe output handling, and support for
 parameterized anonymization dictionaries.
 
+### Confidentiality profile edition
+
+The pinned release (`dicom-anonymizer==1.0.13.post1`) ships two built-in
+rule tables — `dicomfields_2023` (PS3.15 **2023e** Table E.1-1) and
+`dicomfields_2024b` — but **only `dicomfields_2023` is reachable from
+upstream's own CLI**; selecting `2024b` requires calling the Python API
+directly with `base_rules_gen=initialize_actions_2024b`, which upstream's
+`main()` does not expose as a flag. This plugin calls `anonymize_dicom_file`
+without overriding `base_rules_gen`, so **it uses the 2023e profile**,
+consistent with this project's policy of exposing exactly upstream's actual
+CLI surface
+
 ---
 
 # Custom anonymization dictionaries
