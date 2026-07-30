@@ -254,3 +254,190 @@ This file is intended for automated workflows, auditing, and troubleshooting.
 | `--acknowledgeRetainedTags TAG[,TAG...]` | Allow specified identifying tags to remain unchanged.                   |
 | `--continueOnError`                      | Continue processing remaining files after individual failures.          |
 | `--upstreamVersion`                      | Print both the plugin version and the pinned upstream library version.  |
+
+## Installation
+
+### Clone the repository
+
+```bash
+git clone https://github.com/FNNDSC/pl-dicom_anonymize.git
+cd pl-dicom_anonymize
+```
+
+### Install locally
+
+Create and activate a Python environment (recommended), then install the
+dependencies and the plugin.
+
+```bash
+python -m venv venv
+source venv/bin/activate
+
+pip install -r requirements.txt
+pip install -e .
+```
+
+The editable installation makes local source changes immediately available
+without reinstalling the package.
+
+---
+
+## Building the Docker image
+
+Build the plugin container locally:
+
+```bash
+docker build -t pl-dicom_anonymize:local .
+```
+
+You can verify the installation by printing the plugin version:
+
+```bash
+docker run --rm pl-dicom_anonymize:local --version
+```
+
+or
+
+```bash
+docker run --rm pl-dicom_anonymize:local --upstreamVersion
+```
+
+---
+
+## Running from the command line
+
+After installing locally, the plugin can be executed directly:
+
+```bash
+dicom_anonymize [OPTIONS] INPUTDIR OUTPUTDIR
+```
+
+Example:
+
+```bash
+dicom_anonymize \
+    ./incoming \
+    ./outgoing
+```
+
+Preserve private tags:
+
+```bash
+dicom_anonymize \
+    --keepPrivateTags \
+    ./incoming \
+    ./outgoing
+```
+
+Use a custom anonymization dictionary:
+
+```bash
+dicom_anonymize \
+    --dictionaryFile custom_dictionary.json \
+    ./incoming \
+    ./outgoing
+```
+
+Copy non-DICOM files as well:
+
+```bash
+dicom_anonymize \
+    --copyNonDicom \
+    ./incoming \
+    ./outgoing
+```
+
+Skip independent output verification:
+
+```bash
+dicom_anonymize \
+    --skipOutputVerification \
+    ./incoming \
+    ./outgoing
+```
+
+Continue processing after individual file failures:
+
+```bash
+dicom_anonymize \
+    --continueOnError \
+    ./incoming \
+    ./outgoing
+```
+
+---
+
+## Running with Docker
+
+The recommended container invocation is:
+
+```bash
+docker run --rm \
+    -v $PWD/incoming:/incoming:ro \
+    -v $PWD/outgoing:/outgoing \
+    ghcr.io/fnndsc/pl-dicom_anonymize:latest \
+    /incoming /outgoing
+```
+
+Using a custom dictionary:
+
+```bash
+docker run --rm \
+    -v $PWD/incoming:/incoming:ro \
+    -v $PWD/outgoing:/outgoing \
+    ghcr.io/fnndsc/pl-dicom_anonymize:latest \
+    --dictionaryFile /incoming/custom_dictionary.json \
+    /incoming /outgoing
+```
+
+Using an inline dictionary:
+
+```bash
+docker run --rm \
+    -v $PWD/incoming:/incoming:ro \
+    -v $PWD/outgoing:/outgoing \
+    ghcr.io/fnndsc/pl-dicom_anonymize:latest \
+    --dictionary '{"(0010,0010)":"replace"}' \
+    /incoming /outgoing
+```
+
+
+## Testing
+
+### Install development dependencies
+
+```bash
+pip install -r requirements.txt
+pip install -e .
+pip install pytest
+```
+
+### Run the test suite
+
+```bash
+pytest -v
+```
+
+or run a specific test:
+
+```bash
+pytest tests/test_integration.py -v
+```
+
+### Test inside Docker
+
+Build a development image:
+
+```bash
+docker build \
+    --build-arg extras_require=dev \
+    -t pl-dicom_anonymize:dev .
+```
+
+Run the test suite:
+
+```bash
+docker run --rm \
+    pl-dicom_anonymize:dev \
+    pytest -v
+```
