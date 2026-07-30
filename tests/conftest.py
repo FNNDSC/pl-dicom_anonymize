@@ -32,11 +32,12 @@ def _make_dcm(path: Path, patient_name, patient_id, study_uid, series_uid, sop_u
 @pytest.fixture
 def default_options():
     return Namespace(
-        dictionary='{"(16,16)":"replace","(16,32)":"replace","(16,48)":"empty","(8,128)":"empty"}',
-        pattern="**/*.dcm",
+        dictionary='{}',
+        pattern="**/*",
         keepPrivateTags=False,
         copyNonDicom=False,
         skipOutputVerification=False,
+        continueOnError=False,
         acknowledgeRetainedTags=""
     )
 

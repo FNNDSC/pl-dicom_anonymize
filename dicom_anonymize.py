@@ -7,7 +7,7 @@ from pathlib import Path
 from argparse import ArgumentParser, Namespace, ArgumentDefaultsHelpFormatter
 import os
 from chris_plugin import chris_plugin, PathMapper
-import pydicom
+import functools
 from dicomanonymizer.simpledicomanonymizer import (
     anonymize_dataset,
     ActionsMapNameFunctions,
@@ -29,41 +29,6 @@ from safety import (
     sanitize_exception,
     verify_deidentified,
 )
-import dicomanonymizer
-
-
-def load_dictionary(dictionary_string: str):
-    """
-    Convert Kitware dicom-anonymizer JSON dictionary
-    into anonymization actions.
-    """
-
-    dictionary = json.loads(dictionary_string)
-
-    actions = {}
-
-    for tag, action_name in dictionary.items():
-        dicom_tag = ast.literal_eval(tag)
-
-        action = (
-            ActionsMapNameFunctions[action_name]
-            .value
-            .function
-        )
-
-        actions[dicom_tag] = action
-
-    return actions
-
-def _build_extra_rules(options) -> dict:
-    rules: dict = {}
-    tag_actions = json.loads(options.tag_action)
-    if tag_actions:
-        parse_tag_actions_arguments(tag_actions, rules)
-    if options.dictionaryFile:
-        parse_dictionary_argument(options.dictionaryFile, rules)
-    return rules
-
 
 __version__ = '1.0.0'
 
@@ -94,6 +59,8 @@ parser.add_argument('-V', '--version', action='version',
 parser.add_argument(
     "--dictionary",
     type=str,
+    default="{}",
+    metavar="JSON",
     required=False,
     help="Anonymization dictionary as JSON string"
 )
@@ -149,16 +116,6 @@ parser.add_argument(
     ),
 )
 parser.add_argument(
-    "-t",
-    "--tag-action",
-    nargs="+",
-    action="append",
-    help=(
-        "Custom tag action. "
-        "Format: '(group,element)' action args..."
-    )
-)
-parser.add_argument(
     "--dictionaryFile",
     type=str,
     default=None,
@@ -181,6 +138,52 @@ parser.add_argument(
     ),
     help="[upstream: -v/--version] Print plugin and upstream engine versions and exit.",
 )
+parser.add_argument(
+    "--continueOnError",
+    action="store_true",
+    default=False,
+    help=(
+        "If set, keep processing remaining files after a per-file failure "
+        "instead of stopping immediately. Regardless of this flag, if ANY "
+        "file fails, the plugin's overall exit status is non-zero (a "
+        "partially-successful run is never reported as success). "
+        "Default: False (stop at first failure)."
+    ),
+)
+def load_dictionary(dictionary_string: str):
+    """
+    Convert Kitware dicom-anonymizer JSON dictionary
+    into anonymization actions.
+    """
+    dictionary = json.loads(dictionary_string)
+    actions = {}
+
+    for tag, action_spec in dictionary.items():
+        dicom_tag = ast.literal_eval(tag)
+
+        if isinstance(action_spec, dict):
+            action_name = action_spec["action"]
+            action_factory = ActionsMapNameFunctions[action_name].value.function
+            # Pass the dict straight through — replace_with_value / regexp
+            # both know how to pull what they need out of a dict of options.
+            action = action_factory(action_spec)
+        else:
+            action_name = action_spec
+            action = ActionsMapNameFunctions[action_name].value.function
+
+        actions[dicom_tag] = action
+
+    return actions
+
+def _build_extra_rules(options) -> dict:
+    rules: dict = {}
+    tag_actions = json.loads(options.tag_action)
+    if tag_actions:
+        parse_tag_actions_arguments(tag_actions, rules)
+    if options.dictionaryFile:
+        parse_dictionary_argument(options.dictionaryFile, rules)
+    return rules
+
 def _process_one(
     input_path: Path,
     output_path: Path,
@@ -243,7 +246,7 @@ def _process_one(
     ok, reason = verify_deidentified(
         original_dataset,
         tmp_output_path,
-        acknowledged_retained_tags=options.acknowledgeRetainedTags,
+        acknowledged_retained_tags=options.acknowledged_tags_set,
     )
     if not ok:
         # Never deliver a file we can't positively verify. Delete the
@@ -290,11 +293,18 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
     # Refer to the documentation for more options, examples, and advanced uses e.g.
     # adding a progress bar and parallelism.
     if options.dictionary:
-        rules = load_dictionary(
-            options.dictionary
-        )
+        try:
+            rules = load_dictionary(
+                options.dictionary
+            )
+        except Exception as e:
+            cls, summary = sanitize_exception(e)
+            print(f"FATAL: could not build anonymization rules ({cls}): {summary}", file=sys.stderr)
+            sys.exit(2)
     else:
         rules = {}
+
+    print(rules)
 
     records = []
 
@@ -302,12 +312,20 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
     total_seen = 0
     failed_hashes = []
     counts = {s.value: 0 for s in Status}
+    options.acknowledged_tags_set = frozenset(
+        t.strip() for t in options.acknowledgeRetainedTags.split(",") if t.strip()
+    )
+    if options.acknowledged_tags_set:
+        print(
+            f"NOTE: verification will NOT flag these tags if retained unchanged: "
+            f"{', '.join(sorted(options.acknowledged_tags_set))}",
+            file=sys.stderr,
+        )
     mapper = PathMapper.file_mapper(inputdir, outputdir, glob=options.pattern, fail_if_empty=False)
     for input_file, output_file in mapper:
         total_seen += 1
         rel = input_file.relative_to(inputdir)
         h = relpath_hash(rel)
-        # ds = pydicom.dcmread(input_file, force=False)
         result = _process_one(input_file, output_file, rules, options)
         counts[result.status.value] += 1
         record = {"path": str(rel), "path_hash": h, "status": result.status.value}
@@ -327,7 +345,7 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
             print(f"[OK   ] file#{total_seen} ({h}): de-identified" + ("" if result.verified else " (unverified)"),
                   file=sys.stderr)
         records.append(record)
-        # ds.save_as(output_file)
+
     elapsed = time.time() - started
     any_failed = counts[Status.FAILED.value] > 0
 

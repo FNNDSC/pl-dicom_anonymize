@@ -18,20 +18,40 @@
 `pl-dicom_anonymize` is a _[ChRIS](https://chrisproject.org/) plugin_, meaning it can
 run from either within _ChRIS_ or the command-line.
 
-## Local Usage
+## Usage: local CLI, container, and ChRIS
 
-To get started with local command-line usage, use [Apptainer](https://apptainer.org/)
-(a.k.a. Singularity) to run `pl-dicom_anonymize` as a container:
+### Local CLI (no container)
 
-```shell
-apptainer exec docker://fnndsc/pl-dicom_anonymize dicom_anonymize [--args values...] input/ output/
+```bash
+git clone https://github.com/fnndsc/pl-dicom_anonymize.git
+cd pl-dicom_anonymize
+pip install -r requirements.txt
+pip install -e .
+
+dicom_anonymize --help
+dicom_anonymize /path/to/input /path/to/output
 ```
 
-To print its available options, run:
+`dicom_anonymize` is the installed console-script entry point
+(`python3 -m dicom_anonymize ...`) works identically.
 
-```shell
-apptainer exec docker://fnndsc/pl-dicom_anonymize dicom_anonymize --help
+### Container
+
+```bash
+docker build -t pl-dicom_anonymize:local .
+
+docker run --rm \
+  -v /path/to/input:/incoming:ro \
+  -v /path/to/output:/outgoing \
+  pl-dicom_anonymize:local \
+  dicom_anonymize /incoming /outgoing
 ```
+
+Mount `inputdir` read-only (`:ro`) if your Docker setup supports it — the
+plugin never writes there, and `:ro` gives you an extra, enforced guarantee
+of that on top of the plugin's own behavior. Pre-built images (once
+published — see [Publishing to a ChRIS store](#publishing-to-a-chris-store))
+are available at `ghcr.io/fnndsc/pl-dicom_anonymize:<version>`.
 ## What this plugin guarantees
 
 1. Every file under `inputdir`, at every depth, is either de-identified into
@@ -217,6 +237,14 @@ Use the option `--build-arg extras_require=dev` to install extra dependencies fo
 ```shell
 docker build -t localhost/fnndsc/pl-dicom_anonymize:dev --build-arg extras_require=dev .
 docker run --rm -it localhost/fnndsc/pl-dicom_anonymize:dev pytest
+```
+
+Alternatively,
+
+```
+pip install -r requirements.txt pytest
+pip install -e .
+pytest -v
 ```
 
 ## Release
