@@ -24,6 +24,23 @@ CLI surface
 
 ---
 
+| Upstream `dicom-anonymizer` CLI | This plugin | Notes |
+|---|---|---|
+| `input` (positional) | *(implicit: `inputdir`)* | Supplied by ChRIS |
+| `output` (positional) | *(implicit: `outputdir`)* | Supplied by ChRIS |
+| `--keepPrivateTags` | `--keepPrivateTags` | Same semantics; default `False` |
+| `--dictionary PATH` | `--dictionaryFile PATH` | Same semantics; must be a container-reachable path |
+| `-t TAG ACTION [ARGS...]` (repeatable) | `--dictionary ` (JSON) | See note below |
+| `-v` / `--version` | `--upstreamVersion` | Prints plugin + pinned upstream version |
+
+**Note on `-t`:** Upstream `dicom-anonymizer` supports multiple `-t TAG ACTION
+[ARGS...]` arguments using argparse's repeatable argument mechanism. ChRIS
+plugins cannot expose such parameters because the plugin schema supports only
+single-valued scalar arguments. To preserve the same functionality in a
+ChRIS-compatible way, this plugin accepts a JSON dictionary via
+`--dictionary`, which can express an arbitrary number of anonymization rules in
+a single parameter.
+
 # Custom anonymization dictionaries
 
 Additional or overriding anonymization rules can be supplied either inline with
@@ -433,7 +450,7 @@ pytest -v
 or run a specific test:
 
 ```bash
-pytest tests/test_integration.py -v
+pytest tests/test_private_tags.py -v
 ```
 
 ### Test inside Docker
