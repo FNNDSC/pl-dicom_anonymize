@@ -148,12 +148,18 @@ parser.add_argument(
     ),
 )
 
-def load_dictionary(dictionary_string: str):
+def load_dictionary(options):
     """
     Convert Kitware dicom-anonymizer JSON dictionary
     into anonymization actions.
     """
-    dictionary = json.loads(dictionary_string)
+    if options.dictionaryFile:
+        with open(options.dictionaryFile) as f:
+            dictionary = json.load(f)
+    elif options.dictionary:
+        dictionary = json.loads(options.dictionary)
+    else:
+        dictionary = {}
     actions = {}
 
     for tag, action_spec in dictionary.items():
@@ -281,19 +287,14 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
     #
     # Refer to the documentation for more options, examples, and advanced uses e.g.
     # adding a progress bar and parallelism.
-    if options.dictionary:
-        try:
-            rules = load_dictionary(
-                options.dictionary
-            )
-        except Exception as e:
-            cls, summary = sanitize_exception(e)
-            print(f"FATAL: could not build anonymization rules ({cls}): {summary}", file=sys.stderr)
-            sys.exit(2)
-    else:
-        rules = {}
-
-    print(rules)
+    try:
+        rules = load_dictionary(
+            options
+        )
+    except Exception as e:
+        cls, summary = sanitize_exception(e)
+        print(f"FATAL: could not build anonymization rules ({cls}): {summary}", file=sys.stderr)
+        sys.exit(2)
 
     records = []
 
