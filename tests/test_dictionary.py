@@ -20,7 +20,8 @@ def test_custom_dictionary(
         keepPrivateTags=False,
         copyNonDicom=False,
         skipOutputVerification=False,
-        acknowledgeRetainedTags=""
+        acknowledgeRetainedTags="",
+        dictionaryFile=""
 
     )
     with pytest.raises(SystemExit) as exc:

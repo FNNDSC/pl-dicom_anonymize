@@ -89,6 +89,7 @@ def test_non_dicom_not_copied_by_default_but_copied_when_requested(dicom_tree, o
         skipOutputVerification=False,
         acknowledgeRetainedTags="",
         continueOnError=True,
+        dictionaryFile=""
     )
     with pytest.raises(SystemExit):
         main(default_options, dicom_tree, outdir)
@@ -104,6 +105,7 @@ def test_non_dicom_not_copied_by_default_but_copied_when_requested(dicom_tree, o
         skipOutputVerification=False,
         acknowledgeRetainedTags="",
         continueOnError=True,
+        dictionaryFile=""
     )
     with pytest.raises(SystemExit):
         main(default_options, dicom_tree, outdir2)
@@ -120,6 +122,7 @@ def test_custom_tag_action_via_json(dicom_tree, outdir, default_options):
         skipOutputVerification=False,
         acknowledgeRetainedTags="",
         continueOnError=True,
+        dictionaryFile=""
     )
     with pytest.raises(SystemExit):
         main(default_options, dicom_tree, outdir)
@@ -138,6 +141,7 @@ def test_intentional_retain_requires_explicit_acknowledgement(dicom_tree, outdir
         skipOutputVerification=False,
         acknowledgeRetainedTags="",
         continueOnError=True,
+        dictionaryFile=""
     )
 
     # Without acknowledging, verification must reject files where the
@@ -161,6 +165,7 @@ def test_intentional_retain_requires_explicit_acknowledgement(dicom_tree, outdir
         skipOutputVerification=False,
         acknowledgeRetainedTags="InstitutionName",
         continueOnError=True,
+        dictionaryFile=""
     )
     with pytest.raises(SystemExit):
         main(default_options, dicom_tree, outdir2)
@@ -180,6 +185,7 @@ def test_keep_private_tags_flag(dicom_tree, outdir, tmp_path, default_options):
         skipOutputVerification=False,
         acknowledgeRetainedTags="",
         continueOnError=True,
+        dictionaryFile=""
     )
     target = dicom_tree / "patientA/series1/img1.dcm"
     ds = pydicom.dcmread(str(target))
@@ -204,6 +210,7 @@ def test_keep_private_tags_flag(dicom_tree, outdir, tmp_path, default_options):
         skipOutputVerification=False,
         acknowledgeRetainedTags="",
         continueOnError=True,
+        dictionaryFile=""
     )
     with pytest.raises(SystemExit):
         main(default_options, dicom_tree, outdir_strip)

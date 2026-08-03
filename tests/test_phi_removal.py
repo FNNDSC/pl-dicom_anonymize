@@ -21,7 +21,8 @@ def test_patient_information_removed(
         keepPrivateTags=True,
         copyNonDicom=False,
         skipOutputVerification=False,
-        acknowledgeRetainedTags=""
+        acknowledgeRetainedTags="",
+        dictionaryFile=""
 
     )
     with pytest.raises(SystemExit):

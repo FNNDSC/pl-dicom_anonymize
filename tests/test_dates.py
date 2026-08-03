@@ -28,7 +28,8 @@ def test_dates_are_replaced_with_fixed_dummy_not_shifted(tmp_path, default_optio
         keepPrivateTags=True,
         copyNonDicom=False,
         skipOutputVerification=False,
-        acknowledgeRetainedTags=""
+        acknowledgeRetainedTags="",
+        dictionaryFile=""
 
     )
 

@@ -38,7 +38,8 @@ def default_options():
         copyNonDicom=False,
         skipOutputVerification=False,
         continueOnError=False,
-        acknowledgeRetainedTags=""
+        acknowledgeRetainedTags="",
+        dictionaryFile=""
     )
 
 @pytest.fixture
