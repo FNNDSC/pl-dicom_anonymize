@@ -452,21 +452,3 @@ or run a specific test:
 ```bash
 pytest tests/test_private_tags.py -v
 ```
-
-### Test inside Docker
-
-Build a development image:
-
-```bash
-docker build \
-    --build-arg extras_require=dev \
-    -t pl-dicom_anonymize:dev .
-```
-
-Run the test suite:
-
-```bash
-docker run --rm \
-    pl-dicom_anonymize:dev \
-    pytest -v
-```
