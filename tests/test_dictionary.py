@@ -40,3 +40,56 @@ def test_custom_dictionary(
     )
 
     assert ds.PatientName != "John^Doe"
+
+def test_inline_dictionary_overrides_dictionary_file(
+        dicom_tree, outdir, tmp_path):
+
+    input_dir = dicom_tree
+    output_dir = outdir
+
+    dictionary_file = tmp_path / "dictionary.json"
+    dictionary_file.write_text(json.dumps({
+        "(16, 16)": {
+            "action": "replace_with_value",
+            "value": "FILE"
+        },
+        "(16, 32)": {
+            "action": "replace_with_value",
+            "value": "FILE_ID"
+        },
+    }))
+
+    options = Namespace(
+        dictionary=json.dumps({
+            "(16, 16)": {
+                "action": "replace_with_value",
+                "value": "INLINE"
+            }
+        }),
+        pattern="patientA/series1/img1.dcm",
+        keepPrivateTags=False,
+        copyNonDicom=False,
+        skipOutputVerification=False,
+        continueOnError=False,
+        acknowledgeRetainedTags="",
+        dictionaryFile=str(dictionary_file),
+    )
+
+    main(
+        options,
+        input_dir,
+        output_dir
+    )
+
+    ds = pydicom.dcmread(
+        output_dir /
+        "patientA" /
+        "series1" /
+        "img1.dcm"
+    )
+
+    # Inline dictionary overrides the file dictionary.
+    assert ds.PatientName == "INLINE"
+
+    # File-only rule is still retained.
+    assert ds.PatientID == "FILE_ID"

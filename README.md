@@ -23,14 +23,13 @@ consistent with this project's policy of exposing exactly upstream's actual
 CLI surface
 
 ---
-
 | Upstream `dicom-anonymizer` CLI | This plugin | Notes |
 |---|---|---|
 | `input` (positional) | *(implicit: `inputdir`)* | Supplied by ChRIS |
 | `output` (positional) | *(implicit: `outputdir`)* | Supplied by ChRIS |
 | `--keepPrivateTags` | `--keepPrivateTags` | Same semantics; default `False` |
-| `--dictionary PATH` | `--dictionaryFile PATH` | Same semantics; must be a container-reachable path |
-| `-t TAG ACTION [ARGS...]` (repeatable) | `--dictionary ` (JSON) | See note below |
+| `--dictionary PATH` | `--dictionaryFile PATH` | JSON dictionary file; path must be reachable inside the container |
+| `-t TAG ACTION [ARGS...]` (repeatable) | `--dictionary` (JSON) | See note below |
 | `-v` / `--version` | `--upstreamVersion` | Prints plugin + pinned upstream version |
 
 **Note on `-t`:** Upstream `dicom-anonymizer` supports multiple `-t TAG ACTION
@@ -45,6 +44,10 @@ a single parameter.
 
 Additional or overriding anonymization rules can be supplied either inline with
 `--dictionary` or from a JSON file using `--dictionaryFile`.
+
+When both are provided, rules from `--dictionary` are applied on top of rules
+from `--dictionaryFile`. If the same DICOM tag is specified in both,
+the inline `--dictionary` rule takes precedence.
 
 ## Inline JSON
 
@@ -104,8 +107,8 @@ The plugin forwards these objects directly to the corresponding upstream action
 implementations, allowing full support for parameterized actions such as
 `replace_with_value` and `regexp`.
 
-When both `--dictionary` and `--dictionaryFile` are provided, rules from
-`--dictionaryFile` override any matching rules supplied inline.
+When both `--dictionaryFile` and `--dictionary` are provided, the file is
+loaded first and the inline dictionary is applied on top of it.
 
 ---
 

@@ -58,7 +58,11 @@ parser.add_argument(
     default="{}",
     metavar="JSON",
     required=False,
-    help="Anonymization dictionary as JSON string",
+    help=(
+        "Anonymization dictionary as a JSON string. "
+        "Rules from --dictionary override rules from --dictionaryFile "
+        "when the same DICOM tag is specified in both."
+    ),
 )
 parser.add_argument(
     "--keepPrivateTags",
@@ -122,7 +126,8 @@ parser.add_argument(
         "of additional/overriding {tag: action} rules. The path must be "
         "reachable inside the container -- typically a file that lives "
         "inside inputdir; give the path as inputdir-relative or absolute. "
-        "Rules from --dictionaryFile are applied on top of --dictionary. "
+        "Rules from --dictionary are applied on top of --dictionaryFile; "
+        "when the same tag is specified in both, --dictionary takes precedence. "
         "Default: None (no dictionary overrides; PS3.15 2023e defaults apply)."
     ),
 )
@@ -150,16 +155,22 @@ parser.add_argument(
 
 def load_dictionary(options):
     """
-    Convert Kitware dicom-anonymizer JSON dictionary
+    Convert Kitware dicom-anonymizer JSON dictionaries
     into anonymization actions.
+
+    Rules from --dictionary are applied on top of --dictionaryFile.
+    When the same DICOM tag is present in both, the inline rule takes
+    precedence.
     """
+    dictionary = {}
+
     if options.dictionaryFile:
         with open(options.dictionaryFile) as f:
-            dictionary = json.load(f)
-    elif options.dictionary:
-        dictionary = json.loads(options.dictionary)
-    else:
-        dictionary = {}
+            dictionary.update(json.load(f))
+
+    if options.dictionary:
+        dictionary.update(json.loads(options.dictionary))
+
     actions = {}
 
     for tag, action_spec in dictionary.items():
@@ -168,8 +179,6 @@ def load_dictionary(options):
         if isinstance(action_spec, dict):
             action_name = action_spec["action"]
             action_factory = ActionsMapNameFunctions[action_name].value.function
-            # Pass the dict straight through — replace_with_value / regexp
-            # both know how to pull what they need out of a dict of options.
             action = action_factory(action_spec)
         else:
             action_name = action_spec
