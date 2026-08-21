@@ -23,6 +23,7 @@ consistent with this project's policy of exposing exactly upstream's actual
 CLI surface
 
 ---
+
 | Upstream `dicom-anonymizer` CLI | This plugin | Notes |
 |---|---|---|
 | `input` (positional) | *(implicit: `inputdir`)* | Supplied by ChRIS |
@@ -56,8 +57,8 @@ Simple actions use the same syntax as the upstream
 
 ```json
 {
-  "(0010,0010)": "replace",
-  "(0010,0020)": "empty"
+  "(0x0010,0x0010)": "replace",
+  "(0x0010,0x0020)": "empty"
 }
 ```
 
@@ -68,9 +69,15 @@ docker run --rm \
     -v $PWD/in:/incoming:ro \
     -v $PWD/out:/outgoing \
     ghcr.io/fnndsc/pl-dicom_anonymize:latest \
-    --dictionary '{"(0010,0010)":"replace"}' \
+    --dictionary '{"(0x0010,0x0010)":"replace"}' \
     /incoming /outgoing
 ```
+
+> **Tag syntax:** tag keys are parsed with Python's `ast.literal_eval`, so
+> they must be a literal 2-tuple such as `"(0x0010, 0x0010)"` (hex) or
+> `"(16, 16)"` (decimal) -- **not** the zero-padded `"(0010,0010)"` form
+> often used in DICOM documentation, which Python rejects as an invalid
+> decimal literal.
 
 ---
 
@@ -80,13 +87,13 @@ Rules can also be stored in a JSON file.
 
 ```json
 {
-  "(0010,0010)": {
+  "(0x0010,0x0010)": {
     "action": "replace_with_value",
     "value": "Anonymous"
   },
-  "(0008,1030)": {
+  "(0x0008,0x1030)": {
     "action": "regexp",
-    "pattern": ".*",
+    "find": ".*",
     "replace": "REDACTED"
   }
 }
@@ -429,7 +436,7 @@ docker run --rm \
     -v $PWD/incoming:/incoming:ro \
     -v $PWD/outgoing:/outgoing \
     ghcr.io/fnndsc/pl-dicom_anonymize:latest \
-    --dictionary '{"(0010,0010)":"replace"}' \
+    --dictionary '{"(0x0010,0x0010)":"replace"}' \
     /incoming /outgoing
 ```
 
@@ -454,4 +461,15 @@ or run a specific test:
 
 ```bash
 pytest tests/test_private_tags.py -v
+```
+
+### Test inside Docker
+
+```bash
+docker build --build-arg extras_require=dev -t pl-dicom_anonymize:dev .
+docker run --rm \
+  -v "$PWD:/app:ro" \
+  -w /app \
+  pl-dicom_anonymize:dev \
+  pytest -v -o cache_dir=/tmp/pytest
 ```

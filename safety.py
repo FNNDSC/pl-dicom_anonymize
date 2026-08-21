@@ -119,6 +119,8 @@ def sanitize_exception(exc: BaseException) -> tuple[str, str]:
         "ValueError": "a data element could not be parsed, converted, or written under the requested rules",
         "AttributeError": "an unexpected dataset structure was encountered",
         "OSError": "an I/O error occurred while reading or writing",
+        "JSONDecodeError": "a dictionary file or --dictionary value was not valid JSON",
+        "SyntaxError": "a DICOM tag key in a dictionary could not be parsed",
     }
     return name, known.get(name, "processing failed with an unexpected internal error")
 
