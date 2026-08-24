@@ -104,7 +104,4 @@ match afterwards.
 exact pinned dependencies that ship -- not against whatever happens to be on
 the runner. A green run there is the actual gate; running `pytest` locally
 against a different environment is a useful sanity check but not a
-substitute. Note `needs: [test]` is currently commented out on the `build`
-job (see `.github/workflows/ci.yml:44`), so a red test run does **not**
-currently block the image push -- treat a red `test` job as blocking
-manually until that's uncommented.
+substitute. 

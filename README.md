@@ -559,8 +559,7 @@ docker run --rm \
   materials for the plugin's full runtime dependency closure (including
   transitive dependencies like `pydicom` and `tqdm`, which
   `dicom-anonymizer` pulls in but which aren't listed directly in
-  `requirements.txt`). CI regenerates and uploads it as a build artifact on
-  every run.
+  `requirements.txt`).
 * [`NOTICES.md`](./NOTICES.md) and [`third_party_licenses/`](./third_party_licenses)
   contain the license notices required by each pinned dependency.
 * [`MAINTENANCE.md`](./MAINTENANCE.md) documents the upgrade procedure for
