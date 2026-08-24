@@ -38,21 +38,6 @@ jobs:
           docker run -v "$GITHUB_WORKSPACE:/app:ro" -w /app localhost/local/app:dev \
             pytest -o cache_dir=/tmp/pytest
 
-      - name: Generate SBOM (CycloneDX)
-        run: |
-          docker run --rm localhost/local/app:dev pip list --format=freeze \
-            | grep -v '^pip==' > /tmp/frozen.txt
-          python3 -m venv /tmp/sbom-venv
-          /tmp/sbom-venv/bin/pip install -q -r /tmp/frozen.txt cyclonedx-bom
-          /tmp/sbom-venv/bin/cyclonedx-py environment /tmp/sbom-venv \
-            --output-format json --output-file sbom.cdx.json || true
-      - name: Upload SBOM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sbom
-          path: sbom.cdx.json
-          if-no-files-found: warn
-
   build:
     name: Build
     if: github.event_name == 'push' || github.event_name == 'release'

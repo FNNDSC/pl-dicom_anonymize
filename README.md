@@ -544,7 +544,11 @@ pytest tests/test_private_tags.py -v
 
 ```bash
 docker build --build-arg extras_require=dev -t pl-dicom_anonymize:dev .
-docker run --rm pl-dicom_anonymize:dev pytest -v
+docker run --rm \
+    -v "$PWD:/app:ro" \
+    -w /app \
+    pl-dicom_anonymize:dev \
+    pytest -v -o cache_dir=/tmp/pytest
 ```
 
 ## Dependencies, licensing, and maintenance
