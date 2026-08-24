@@ -21,16 +21,20 @@ def test_patient_information_removed(
         keepPrivateTags=True,
         copyNonDicom=False,
         skipOutputVerification=False,
+        continueOnError=True,
         acknowledgeRetainedTags="",
         dictionaryFile=""
 
     )
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit) as exc:
         main(
             options,
             input_dir,
             output_dir
         )
+    # dicom_tree includes one deliberately-corrupt file (broken.dcm), so
+    # the overall run still exits 1.
+    assert exc.value.code == 1
 
     ds = pydicom.dcmread(
         output_dir /
@@ -39,8 +43,11 @@ def test_patient_information_removed(
         "img1.dcm"
     )
 
-    assert ds.PatientName != "John^Doe"
-    assert ds.PatientID != "12345"
+    # The fixture sets PatientName/PatientID to "Doe^Jane" / "MRN001"
+    # (tests/conftest.py); the custom "replace" rule for both tags
+    # overrides them.
+    assert ds.PatientName == "ANONYMIZED"
+    assert ds.PatientID == "ANONYMIZED"
 
     # Kitware default behavior anonymizes this
     assert ds.PatientBirthDate == '00010101'

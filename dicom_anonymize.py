@@ -8,7 +8,6 @@ from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser, Namespace
 from pathlib import Path
 
 from chris_plugin import PathMapper, chris_plugin
-from dicomanonymizer.anonymizer import parse_dictionary_argument
 from dicomanonymizer.simpledicomanonymizer import (
     ActionsMapNameFunctions,
     anonymize_dicom_file,
@@ -24,7 +23,7 @@ from safety import (
     verify_deidentified,
 )
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 # The exact upstream dicom-anonymizer release this plugin is validated
 # against. Kept as a constant (rather than only living in requirements.txt)
@@ -58,7 +57,15 @@ parser.add_argument(
     default="{}",
     metavar="JSON",
     required=False,
-    help="Anonymization dictionary as JSON string",
+    help=(
+        "Anonymization dictionary as a JSON string. "
+        "Rules from --dictionary override rules from --dictionaryFile "
+        "when the same DICOM tag is specified in both. "
+        "NOTE: when --dictionaryFile is also given, both dictionaries are "
+        "now merged and validated together, so an invalid --dictionary "
+        "here (bad JSON, unknown action name, ...) will abort the run "
+        "even if --dictionaryFile alone would have been valid."
+    ),
 )
 parser.add_argument(
     "--keepPrivateTags",
@@ -122,7 +129,8 @@ parser.add_argument(
         "of additional/overriding {tag: action} rules. The path must be "
         "reachable inside the container -- typically a file that lives "
         "inside inputdir; give the path as inputdir-relative or absolute. "
-        "Rules from --dictionaryFile are applied on top of --dictionary. "
+        "Rules from --dictionary are applied on top of --dictionaryFile; "
+        "when the same tag is specified in both, --dictionary takes precedence. "
         "Default: None (no dictionary overrides; PS3.15 2023e defaults apply)."
     ),
 )
@@ -148,34 +156,59 @@ parser.add_argument(
     ),
 )
 
-def load_dictionary(options):
+def _build_actions(dictionary: dict) -> dict:
     """
-    Convert Kitware dicom-anonymizer JSON dictionary
-    into anonymization actions.
+    Convert one Kitware dicom-anonymizer-style {tag_str: action_spec} JSON
+    dictionary into a {parsed_tag_tuple: action_function} mapping.
+
+    Keys are normalized by parsing them with ast.literal_eval *before* they
+    are used as dict keys, so that two different spellings of the same tag
+    (e.g. "(0x0010, 0x0010)" and "(16,16)") collide onto the same key
+    instead of silently coexisting as two distinct dictionary entries.
     """
-    if options.dictionaryFile:
-        with open(options.dictionaryFile) as f:
-            dictionary = json.load(f)
-    elif options.dictionary:
-        dictionary = json.loads(options.dictionary)
-    else:
-        dictionary = {}
     actions = {}
 
     for tag, action_spec in dictionary.items():
         dicom_tag = ast.literal_eval(tag)
 
+        # Pass the dict straight through -- replace_with_value / regexp
+        # both know how to pull what they need out of a dict of options.
         if isinstance(action_spec, dict):
             action_name = action_spec["action"]
             action_factory = ActionsMapNameFunctions[action_name].value.function
-            # Pass the dict straight through — replace_with_value / regexp
-            # both know how to pull what they need out of a dict of options.
             action = action_factory(action_spec)
         else:
             action_name = action_spec
             action = ActionsMapNameFunctions[action_name].value.function
 
         actions[dicom_tag] = action
+
+    return actions
+
+
+def load_dictionary(options):
+    """
+    Convert Kitware dicom-anonymizer JSON dictionaries
+    into anonymization actions.
+
+    Rules from --dictionary are applied on top of --dictionaryFile.
+    When the same DICOM tag is present in both, the inline rule takes
+    precedence.
+
+    Each dictionary is parsed into {parsed_tag_tuple: action} independently
+    (see _build_actions) before merging, so precedence is decided by
+    identical *parsed* DICOM tags rather than by incidental key-string
+    ordering -- two different spellings of the same tag in the file
+    dictionary can't accidentally shadow the inline rule.
+    """
+    actions = {}
+
+    if options.dictionaryFile:
+        with open(options.dictionaryFile) as f:
+            actions.update(_build_actions(json.load(f)))
+
+    if options.dictionary:
+        actions.update(_build_actions(json.loads(options.dictionary)))
 
     return actions
 
@@ -291,6 +324,16 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
         rules = load_dictionary(
             options
         )
+    except FileNotFoundError as e:
+        # sanitize_exception's generic FileNotFoundError text talks about
+        # an *input* file, which would be misleading here -- at this point
+        # in main() the only file being opened is --dictionaryFile.
+        print(
+            f"FATAL: could not build anonymization rules (FileNotFoundError): "
+            f"--dictionaryFile path was not found",
+            file=sys.stderr,
+        )
+        sys.exit(2)
     except Exception as e:
         cls, summary = sanitize_exception(e)
         print(f"FATAL: could not build anonymization rules ({cls}): {summary}", file=sys.stderr)
@@ -312,6 +355,7 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
             file=sys.stderr,
         )
     mapper = PathMapper.file_mapper(inputdir, outputdir, glob=options.pattern, fail_if_empty=False)
+    stopped_early = False
     for input_file, output_file in mapper:
         total_seen += 1
         rel = input_file.relative_to(inputdir)
@@ -336,6 +380,15 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
                   file=sys.stderr)
         records.append(record)
 
+        if result.status == Status.FAILED and not options.continueOnError:
+            stopped_early = True
+            print(
+                "Stopping after first failure (pass --continueOnError to keep "
+                "processing the remaining dataset instead).",
+                file=sys.stderr,
+            )
+            break
+
     elapsed = time.time() - started
     any_failed = counts[Status.FAILED.value] > 0
 
@@ -348,6 +401,8 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
         "keep_private_tags": bool(options.keepPrivateTags),
         "copy_non_dicom": bool(options.copyNonDicom),
         "output_verification_enabled": not options.skipOutputVerification,
+        "continue_on_error": bool(options.continueOnError),
+        "stopped_early": stopped_early,
         "overall_status": "failed" if any_failed else "success",
         "files": records,
     }
@@ -356,11 +411,18 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
     print("---", file=sys.stderr)
     print(f"seen={total_seen} " + " ".join(f"{k}={v}" for k, v in counts.items()), file=sys.stderr)
     if any_failed:
+        early_note = (
+            " Processing stopped at the first failure -- files after it under "
+            "inputdir were never examined (pass --continueOnError to process "
+            "everything and still report overall failure)."
+            if stopped_early else ""
+        )
         print(
             f"FAILED: {counts[Status.FAILED.value]} file(s) could not be safely de-identified "
             f"(hashes: {', '.join(failed_hashes)}). See deidentification_summary.json in the "
             "output directory for details (that file, unlike this log, may reference relative "
-            "paths -- it lives alongside the data it describes under the same access boundary).",
+            f"paths -- it lives alongside the data it describes under the same access boundary)."
+            f"{early_note}",
             file=sys.stderr,
         )
         sys.exit(1)

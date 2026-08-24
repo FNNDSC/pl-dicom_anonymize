@@ -34,8 +34,8 @@ CLI surface
 | `input` (positional) | *(implicit: `inputdir`)* | Supplied by ChRIS |
 | `output` (positional) | *(implicit: `outputdir`)* | Supplied by ChRIS |
 | `--keepPrivateTags` | `--keepPrivateTags` | Same semantics; default `False` |
-| `--dictionary PATH` | `--dictionaryFile PATH` | Same semantics; must be a container-reachable path |
-| `-t TAG ACTION [ARGS...]` (repeatable) | `--dictionary ` (JSON) | See note below |
+| `--dictionary PATH` | `--dictionaryFile PATH` | JSON dictionary file; path must be reachable inside the container |
+| `-t TAG ACTION [ARGS...]` (repeatable) | `--dictionary` (JSON) | See note below |
 | `-v` / `--version` | `--upstreamVersion` | Prints plugin + pinned upstream version |
 
 **Note on `-t`:** Upstream `dicom-anonymizer` supports multiple `-t TAG ACTION
@@ -51,6 +51,10 @@ a single parameter.
 Additional or overriding anonymization rules can be supplied either inline with
 `--dictionary` or from a JSON file using `--dictionaryFile`.
 
+When both are provided, rules from `--dictionary` are applied on top of rules
+from `--dictionaryFile`. If the same DICOM tag is specified in both,
+the inline `--dictionary` rule takes precedence.
+
 ## Inline JSON
 
 Simple actions use the same syntax as the upstream
@@ -58,8 +62,8 @@ Simple actions use the same syntax as the upstream
 
 ```json
 {
-  "(0010,0010)": "replace",
-  "(0010,0020)": "empty"
+  "(0x0010,0x0010)": "replace",
+  "(0x0010,0x0020)": "empty"
 }
 ```
 
@@ -70,9 +74,15 @@ docker run --rm \
     -v $PWD/in:/incoming:ro \
     -v $PWD/out:/outgoing \
     ghcr.io/fnndsc/pl-dicom_anonymize:latest \
-    --dictionary '{"(0010,0010)":"replace"}' \
+    --dictionary '{"(0x0010,0x0010)":"replace"}' \
     /incoming /outgoing
 ```
+
+> **Tag syntax:** tag keys are parsed with Python's `ast.literal_eval`, so
+> they must be a literal 2-tuple such as `"(0x0010, 0x0010)"` (hex) or
+> `"(16, 16)"` (decimal) -- **not** the zero-padded `"(0010,0010)"` form
+> often used in DICOM documentation, which Python rejects as an invalid
+> decimal literal.
 
 ---
 
@@ -82,13 +92,13 @@ Rules can also be stored in a JSON file.
 
 ```json
 {
-  "(0010,0010)": {
+  "(0x0010,0x0010)": {
     "action": "replace_with_value",
     "value": "Anonymous"
   },
-  "(0008,1030)": {
+  "(0x0008,0x1030)": {
     "action": "regexp",
-    "pattern": ".*",
+    "find": ".*",
     "replace": "REDACTED"
   }
 }
@@ -109,8 +119,8 @@ The plugin forwards these objects directly to the corresponding upstream action
 implementations, allowing full support for parameterized actions such as
 `replace_with_value` and `regexp`.
 
-When both `--dictionary` and `--dictionaryFile` are provided, rules from
-`--dictionaryFile` override any matching rules supplied inline.
+When both `--dictionaryFile` and `--dictionary` are provided, the file is
+loaded first and the inline dictionary is applied on top of it.
 
 ---
 
@@ -236,7 +246,8 @@ The summary contains:
 * per-file processing status
 * verification status
 * processing counts
-* selected runtime options
+* selected runtime options, including whether `--continueOnError` was set
+  and whether the run in fact stopped early because of it (`stopped_early`)
 * overall success or failure
 
 This file is intended for automated workflows, auditing, and troubleshooting.
@@ -256,7 +267,25 @@ This file is intended for automated workflows, auditing, and troubleshooting.
 
 4. UID references (Study, Series, SOP Instance UID, etc.) are replaced
    consistently across the entire run, preserving relationships between
-   datasets.
+   datasets. **Scope of this consistency:** the old-UID → new-UID mapping is
+   held in an in-memory table for the lifetime of one `dicom_anonymize`
+   process invocation (this is upstream `dicom-anonymizer`'s own mechanism —
+   a module-level dictionary, not something this plugin persists to disk).
+   Concretely:
+   - Consistent: every file under `inputdir` in a **single** run, however
+     deeply nested, gets the same replacement UID for the same original UID
+     -- so Series-to-Study and Instance-to-Series relationships inside that
+     one dataset survive de-identification.
+   - **Not** consistent: two **separate** invocations of the plugin (e.g.
+     the same physical study submitted to two different ChRIS pipeline
+     instances, or the same input directory run through the plugin twice)
+     will assign different replacement UIDs to the same original UID, since
+     each process starts with an empty mapping. Do not rely on UID matching
+     to correlate output across separate runs.
+   - `--continueOnError`: does not affect this. Stopping early on a failure
+     doesn't reset or partially apply the mapping — every UID replacement
+     already written to a delivered output file remains internally
+     consistent with every other delivered file from that same run.
 
 5. A file is only delivered after the plugin independently re-reads the output
    and verifies that identifying elements actually changed (unless verification
@@ -276,6 +305,37 @@ This file is intended for automated workflows, auditing, and troubleshooting.
 
 ---
 
+# Limitations
+
+* **Confidentiality profile:** only PS3.15's `dicomfields_2023` (2023e)
+  table is used; `dicomfields_2024b` is not reachable through this plugin's
+  CLI (see *Confidentiality profile edition* above).
+* **UID consistency scope:** the old→new UID mapping lives only for the
+  duration of one plugin process invocation. It is not shared or
+  reconciled across separate runs -- see item 4 above.
+* **Non-DICOM files are not inspected for PHI.** With `--copyNonDicom`,
+  matching non-DICOM files are copied byte-for-byte; the plugin has no way
+  to know whether such a file (e.g. an accompanying report or screenshot)
+  contains identifying information.
+* **`-t TAG ACTION [ARGS...]` is not available.** Upstream's repeatable
+  `-t` flag has no single-valued ChRIS-schema equivalent; use `--dictionary`
+  / `--dictionaryFile` instead (see the CLI comparison table above).
+* **Private tags nested inside a private Sequence, with `--keepPrivateTags`
+  set:** upstream `dicom-anonymizer` leaves PHI nested this way untouched
+  even though `--keepPrivateTags` is meant only to preserve *non-identifying*
+  private tags. This plugin's independent output verification step (on by
+  default) catches this and fails the file rather than delivering it -- do
+  not disable `--skipOutputVerification` if you use `--keepPrivateTags` on
+  data that may contain such sequences.
+* **`--continueOnError` still means a non-zero exit on any failure.** It
+  changes whether the run stops early, not whether the run is reported as
+  successful.
+* **CI test gating:** the `test` job must pass before an image is pushed
+  (`.github/workflows/ci.yml`, `build` job's `needs: [test]`); this depends
+  on the workflow file itself not being edited to remove that dependency.
+
+---
+
 # CLI options
 
 | Option                                   | Description                                                             |
@@ -288,6 +348,28 @@ This file is intended for automated workflows, auditing, and troubleshooting.
 | `--acknowledgeRetainedTags TAG[,TAG...]` | Allow specified identifying tags to remain unchanged.                   |
 | `--continueOnError`                      | Continue processing remaining files after individual failures.          |
 | `--upstreamVersion`                      | Print both the plugin version and the pinned upstream library version.  |
+
+## Running via ChRIS (CUBE)
+
+This is a standard ChRIS `ds` plugin -- it reads from one plugin instance's
+output and writes to its own, and takes no positional arguments beyond
+those ChRIS supplies automatically (`inputdir`/`outputdir`).
+
+* **Via `chrisui` / the ChRIS web UI:** search the plugin catalog for
+  `pl-dicom_anonymize`, add it as a child of any node producing DICOM
+  output, and set the options above as plugin parameters in the run form.
+* **Via the `chrs` CLI or the CUBE API directly:** register the image with
+  a CUBE instance (an admin step, done once per CUBE deployment) using the
+  plugin representation that `docker run --rm ghcr.io/fnndsc/pl-dicom_anonymize:latest --json`
+  prints (standard `chris_plugin` behavior), then create a plugin instance
+  with the desired parameters against a prior instance's output.
+* CI (`.github/workflows/ci.yml`) automatically uploads the plugin
+  descriptor to a configured CUBE instance on every semver tag push, via
+  `FNNDSC/upload-chris-plugin`.
+* Once registered, the plugin behaves identically to the Docker examples
+  above -- CUBE mounts the previous plugin instance's output as `inputdir`
+  and a fresh directory as `outputdir`, and passes through whatever
+  parameters were set in the run form as the equivalent CLI flags.
 
 ## Installation
 
@@ -431,7 +513,7 @@ docker run --rm \
     -v $PWD/incoming:/incoming:ro \
     -v $PWD/outgoing:/outgoing \
     ghcr.io/fnndsc/pl-dicom_anonymize:latest \
-    --dictionary '{"(0010,0010)":"replace"}' \
+    --dictionary '{"(0x0010,0x0010)":"replace"}' \
     /incoming /outgoing
 ```
 
@@ -460,18 +542,29 @@ pytest tests/test_private_tags.py -v
 
 ### Test inside Docker
 
-Build a development image:
-
 ```bash
-docker build \
-    --build-arg extras_require=dev \
-    -t pl-dicom_anonymize:dev .
-```
-
-Run the test suite:
-
-```bash
+docker build --build-arg extras_require=dev -t pl-dicom_anonymize:dev .
 docker run --rm \
+    -v "$PWD:/app:ro" \
+    -w /app \
     pl-dicom_anonymize:dev \
-    pytest -v
+    pytest -v -o cache_dir=/tmp/pytest
 ```
+
+## Dependencies, licensing, and maintenance
+
+* All runtime dependencies are pinned exactly in `requirements.txt`, and the
+  base container image is pinned to a specific patch tag in `Dockerfile`.
+* [`sbom.cdx.json`](./sbom.cdx.json) is a CycloneDX software bill of
+  materials for the plugin's full runtime dependency closure (including
+  transitive dependencies like `pydicom` and `tqdm`, which
+  `dicom-anonymizer` pulls in but which aren't listed directly in
+  `requirements.txt`). CI regenerates and uploads it as a build artifact on
+  every run.
+* [`NOTICES.md`](./NOTICES.md) and [`third_party_licenses/`](./third_party_licenses)
+  contain the license notices required by each pinned dependency.
+* [`MAINTENANCE.md`](./MAINTENANCE.md) documents the upgrade procedure for
+  `dicom-anonymizer`, `pydicom`, `chris_plugin`, and the base image,
+  including which tests and README examples to re-verify after each
+  upgrade, and how to regenerate the SBOM.
+
