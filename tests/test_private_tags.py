@@ -54,6 +54,7 @@ def test_phi_nested_in_private_sequence_survives_with_keepPrivateTags_but_is_cau
         keepPrivateTags=True,
         copyNonDicom=False,
         skipOutputVerification=False,
+        continueOnError=False,
         acknowledgeRetainedTags="",
         dictionaryFile=""
 

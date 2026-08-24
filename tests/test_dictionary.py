@@ -20,6 +20,7 @@ def test_custom_dictionary(
         keepPrivateTags=False,
         copyNonDicom=False,
         skipOutputVerification=False,
+        continueOnError=True,
         acknowledgeRetainedTags="",
         dictionaryFile=""
 

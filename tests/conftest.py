@@ -31,13 +31,21 @@ def _make_dcm(path: Path, patient_name, patient_id, study_uid, series_uid, sop_u
 
 @pytest.fixture
 def default_options():
+    # NOTE: continueOnError=True here, even though the CLI's own default is
+    # False ("stop at first failure"). dicom_tree (below) always contains
+    # one deliberately-corrupt file, and most tests built on this fixture
+    # are asserting things about the *other*, valid files in the tree (path
+    # preservation, PHI removal, UID consistency, ...), which requires the
+    # run to keep going past that one failure. The False ("stop at first
+    # failure") default itself is exercised directly by
+    # test_continue_on_error.py.
     return Namespace(
         dictionary='{}',
         pattern="**/*",
         keepPrivateTags=False,
         copyNonDicom=False,
         skipOutputVerification=False,
-        continueOnError=False,
+        continueOnError=True,
         acknowledgeRetainedTags="",
         dictionaryFile=""
     )

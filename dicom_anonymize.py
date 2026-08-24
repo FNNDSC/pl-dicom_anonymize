@@ -355,6 +355,7 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
             file=sys.stderr,
         )
     mapper = PathMapper.file_mapper(inputdir, outputdir, glob=options.pattern, fail_if_empty=False)
+    stopped_early = False
     for input_file, output_file in mapper:
         total_seen += 1
         rel = input_file.relative_to(inputdir)
@@ -379,6 +380,15 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
                   file=sys.stderr)
         records.append(record)
 
+        if result.status == Status.FAILED and not options.continueOnError:
+            stopped_early = True
+            print(
+                "Stopping after first failure (pass --continueOnError to keep "
+                "processing the remaining dataset instead).",
+                file=sys.stderr,
+            )
+            break
+
     elapsed = time.time() - started
     any_failed = counts[Status.FAILED.value] > 0
 
@@ -391,6 +401,8 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
         "keep_private_tags": bool(options.keepPrivateTags),
         "copy_non_dicom": bool(options.copyNonDicom),
         "output_verification_enabled": not options.skipOutputVerification,
+        "continue_on_error": bool(options.continueOnError),
+        "stopped_early": stopped_early,
         "overall_status": "failed" if any_failed else "success",
         "files": records,
     }
@@ -399,11 +411,18 @@ def main(options: Namespace, inputdir: Path, outputdir: Path):
     print("---", file=sys.stderr)
     print(f"seen={total_seen} " + " ".join(f"{k}={v}" for k, v in counts.items()), file=sys.stderr)
     if any_failed:
+        early_note = (
+            " Processing stopped at the first failure -- files after it under "
+            "inputdir were never examined (pass --continueOnError to process "
+            "everything and still report overall failure)."
+            if stopped_early else ""
+        )
         print(
             f"FAILED: {counts[Status.FAILED.value]} file(s) could not be safely de-identified "
             f"(hashes: {', '.join(failed_hashes)}). See deidentification_summary.json in the "
             "output directory for details (that file, unlike this log, may reference relative "
-            "paths -- it lives alongside the data it describes under the same access boundary).",
+            f"paths -- it lives alongside the data it describes under the same access boundary)."
+            f"{early_note}",
             file=sys.stderr,
         )
         sys.exit(1)

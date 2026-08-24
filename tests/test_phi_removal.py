@@ -21,6 +21,7 @@ def test_patient_information_removed(
         keepPrivateTags=True,
         copyNonDicom=False,
         skipOutputVerification=False,
+        continueOnError=True,
         acknowledgeRetainedTags="",
         dictionaryFile=""
 
