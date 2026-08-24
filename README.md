@@ -1,5 +1,10 @@
 # A ChRIS plugin to anonymize DICOM files
 
+[![Version](https://img.shields.io/docker/v/fnndsc/pl-dicom_anonymize?sort=semver)](https://hub.docker.com/r/fnndsc/pl-dicom_anonymize)
+[![MIT License](https://img.shields.io/github/license/fnndsc/pl-dicom_anonymize)](https://github.com/FNNDSC/pl-dicom_anonymize/blob/main/LICENSE)
+[![ci](https://github.com/FNNDSC/pl-dicom_anonymize/actions/workflows/ci.yml/badge.svg)](https://github.com/FNNDSC/pl-dicom_anonymize/actions/workflows/ci.yml)
+
+
 `pl-dicom_anonymize` is a **ChRIS ds plugin** that recursively de-identifies
 DICOM datasets using
 [KitwareMedical/dicom-anonymizer](https://github.com/KitwareMedical/dicom-anonymizer)
