@@ -51,6 +51,109 @@ def test_custom_dictionary(
     assert ds.PatientName == "ANONYMIZED"
     assert ds.PatientID == "ANONYMIZED"
 
+
+def test_dictionary_accepts_dicom_keywords(dicom_tree, outdir):
+    """Tag keys don't have to be (group, element) hex tuples -- standard
+    DICOM keywords like "PatientName" work too, and resolve to the exact
+    same tag as the hex form."""
+    input_dir = dicom_tree
+    output_dir = outdir
+
+    options = Namespace(
+        dictionary=json.dumps({
+            "PatientName": "replace",
+            "PatientID": "replace",
+        }),
+        pattern="**/*.dcm",
+        keepPrivateTags=False,
+        copyNonDicom=False,
+        skipOutputVerification=False,
+        continueOnError=True,
+        acknowledgeRetainedTags="",
+        dictionaryFile="",
+    )
+    with pytest.raises(SystemExit) as exc:
+        main(options, input_dir, output_dir)
+    assert exc.value.code == 1  # dicom_tree's broken.dcm still fails the run
+
+    ds = pydicom.dcmread(output_dir / "patientA" / "series1" / "img1.dcm")
+    assert ds.PatientName == "ANONYMIZED"
+    assert ds.PatientID == "ANONYMIZED"
+
+
+def test_dictionary_keyword_and_tuple_forms_collide_on_the_same_tag(
+        dicom_tree, outdir, tmp_path):
+    """A tag named by keyword in one dictionary and by tuple in the other
+    must be recognized as the same tag for precedence purposes, not
+    treated as two unrelated rules."""
+    input_dir = dicom_tree
+    output_dir = outdir
+
+    dictionary_file = tmp_path / "dictionary.json"
+    dictionary_file.write_text(json.dumps({
+        "(0x0010, 0x0010)": {"action": "replace_with_value", "value": "FILE"},
+    }))
+
+    options = Namespace(
+        dictionary=json.dumps({
+            "PatientName": {"action": "replace_with_value", "value": "INLINE"},
+        }),
+        pattern="patientA/series1/img1.dcm",
+        keepPrivateTags=False,
+        copyNonDicom=False,
+        skipOutputVerification=False,
+        continueOnError=False,
+        acknowledgeRetainedTags="",
+        dictionaryFile=str(dictionary_file),
+    )
+
+    main(options, input_dir, output_dir)
+
+    ds = pydicom.dcmread(output_dir / "patientA" / "series1" / "img1.dcm")
+    assert ds.PatientName == "INLINE"
+
+
+def test_dictionary_rejects_unrecognized_keyword(dicom_tree, outdir):
+    """A typo'd or nonexistent keyword should fail fast with a message
+    that tells the user what's wrong, not a cryptic ast.literal_eval
+    SyntaxError."""
+    options = Namespace(
+        dictionary=json.dumps({"PatinetName": "replace"}),  # typo
+        pattern="**/*.dcm",
+        keepPrivateTags=False,
+        copyNonDicom=False,
+        skipOutputVerification=False,
+        continueOnError=False,
+        acknowledgeRetainedTags="",
+        dictionaryFile="",
+    )
+    with pytest.raises(SystemExit) as exc:
+        main(options, dicom_tree, outdir)
+    assert exc.value.code == 2
+    assert not list(outdir.glob("**/*.dcm"))
+
+
+def test_dictionary_still_accepts_private_tags_by_tuple(dicom_tree, outdir):
+    """Private tags have no standard keyword at all, so the literal
+    (group, element) tuple form must keep working alongside keywords."""
+    options = Namespace(
+        dictionary=json.dumps({
+            "PatientName": "replace",
+            "(0x0009, 0x0010)": "empty",  # a private tag, no keyword exists
+        }),
+        pattern="patientA/series1/img1.dcm",
+        keepPrivateTags=True,
+        copyNonDicom=False,
+        skipOutputVerification=False,
+        continueOnError=False,
+        acknowledgeRetainedTags="",
+        dictionaryFile="",
+    )
+    main(options, dicom_tree, outdir)
+    ds = pydicom.dcmread(outdir / "patientA" / "series1" / "img1.dcm")
+    assert ds.PatientName == "ANONYMIZED"
+
+
 def test_inline_dictionary_overrides_dictionary_file(
         dicom_tree, outdir, tmp_path):
 

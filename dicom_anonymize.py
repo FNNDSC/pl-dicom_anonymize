@@ -12,6 +12,8 @@ from dicomanonymizer.simpledicomanonymizer import (
     ActionsMapNameFunctions,
     anonymize_dicom_file,
 )
+from pydicom.datadict import tag_for_keyword
+from pydicom.tag import Tag
 
 from safety import (
     FileResult,
@@ -58,7 +60,10 @@ parser.add_argument(
     metavar="JSON",
     required=False,
     help=(
-        "Anonymization dictionary as a JSON string. "
+        "Anonymization dictionary as a JSON string, e.g. "
+        '\'{"PatientName": "replace"}\'. Tag keys may be a standard DICOM '
+        "keyword (e.g. PatientName) or a literal (group, element) tuple "
+        "(e.g. \"(0x0010, 0x0010)\") for private tags. "
         "Rules from --dictionary override rules from --dictionaryFile "
         "when the same DICOM tag is specified in both. "
         "NOTE: when --dictionaryFile is also given, both dictionaries are "
@@ -156,20 +161,56 @@ parser.add_argument(
     ),
 )
 
+def _parse_tag_key(tag: str) -> tuple:
+    """
+    Parse one dictionary key into a (group, element) tag tuple.
+
+    Two forms are accepted:
+
+    - A standard DICOM keyword, e.g. "PatientName" or "AccessionNumber" --
+      resolved via pydicom's data dictionary. This is the form most people
+      writing a dictionary actually know; almost nobody has PS3.6's
+      group/element hex codes memorized.
+    - A literal (group, element) tuple, e.g. "(0x0010, 0x0010)" or
+      "(16, 16)" -- still accepted for private tags and any tag with no
+      standard keyword, which the pydicom data dictionary can't resolve by
+      name at all.
+
+    A leading "(" is what distinguishes the two forms; DICOM keywords are
+    valid Python identifiers and never start with that character.
+    """
+    stripped = tag.strip()
+
+    if stripped.startswith("("):
+        return ast.literal_eval(stripped)
+
+    dicom_tag = tag_for_keyword(stripped)
+    if dicom_tag is None:
+        raise ValueError(
+            f"'{tag}' is not a recognized DICOM keyword and is not a "
+            f"(group, element) tag tuple. Standard tags can be given by "
+            f"keyword (e.g. \"PatientName\"); tags with no standard "
+            f"keyword, such as private tags, must be given as a literal "
+            f"tuple (e.g. \"(0x0009, 0x0010)\")."
+        )
+    parsed = Tag(dicom_tag)
+    return parsed.group, parsed.element
+
+
 def _build_actions(dictionary: dict) -> dict:
     """
     Convert one Kitware dicom-anonymizer-style {tag_str: action_spec} JSON
     dictionary into a {parsed_tag_tuple: action_function} mapping.
 
-    Keys are normalized by parsing them with ast.literal_eval *before* they
-    are used as dict keys, so that two different spellings of the same tag
-    (e.g. "(0x0010, 0x0010)" and "(16,16)") collide onto the same key
-    instead of silently coexisting as two distinct dictionary entries.
+    Keys are normalized by parsing them with _parse_tag_key *before* they
+    are used as dict keys, so that different spellings of the same tag
+    (e.g. "(0x0010, 0x0010)", "(16,16)", and "PatientName") all collide
+    onto the same key instead of silently coexisting as separate entries.
     """
     actions = {}
 
     for tag, action_spec in dictionary.items():
-        dicom_tag = ast.literal_eval(tag)
+        dicom_tag = _parse_tag_key(tag)
 
         # Pass the dict straight through -- replace_with_value / regexp
         # both know how to pull what they need out of a dict of options.

@@ -55,6 +55,31 @@ When both are provided, rules from `--dictionary` are applied on top of rules
 from `--dictionaryFile`. If the same DICOM tag is specified in both,
 the inline `--dictionary` rule takes precedence.
 
+## Tag keys: keyword or (group, element)
+
+Every tag key below can be given two ways:
+
+- **A standard DICOM keyword**, e.g. `"PatientName"` or `"AccessionNumber"`
+  -- this is almost always the one to use. It's resolved against pydicom's
+  data dictionary, the same lookup pydicom itself uses, so it's exactly as
+  authoritative as the hex form and far easier to get right without
+  looking anything up.
+- **A literal `(group, element)` tuple**, e.g. `"(0x0010, 0x0010)"` -- still
+  needed for private tags and anything else with no standard keyword,
+  since those can't be resolved by name at all.
+
+Both forms resolve to the same underlying tag, so a keyword in
+`--dictionary` and a tuple for the same tag in `--dictionaryFile` still
+collide correctly for precedence purposes (see below). An unrecognized
+keyword (a typo, or a tag that genuinely has no standard name) is a fatal
+error at startup, before any file is touched -- not a silent no-op.
+
+> **Tag tuple syntax**, if you do need the `(group, element)` form: keys are
+> parsed with Python's `ast.literal_eval`, so they must be a literal
+> 2-tuple such as `"(0x0010, 0x0010)"` (hex) or `"(16, 16)"` (decimal) --
+> **not** the zero-padded `"(0010,0010)"` form often used in DICOM
+> documentation, which Python rejects as an invalid decimal literal.
+
 ## Inline JSON
 
 Simple actions use the same syntax as the upstream
@@ -62,8 +87,8 @@ Simple actions use the same syntax as the upstream
 
 ```json
 {
-  "(0x0010,0x0010)": "replace",
-  "(0x0010,0x0020)": "empty"
+  "PatientName": "replace",
+  "PatientID": "empty"
 }
 ```
 
@@ -74,15 +99,9 @@ docker run --rm \
     -v $PWD/in:/incoming:ro \
     -v $PWD/out:/outgoing \
     ghcr.io/fnndsc/pl-dicom_anonymize:latest \
-    --dictionary '{"(0x0010,0x0010)":"replace"}' \
+    --dictionary '{"PatientName":"replace"}' \
     /incoming /outgoing
 ```
-
-> **Tag syntax:** tag keys are parsed with Python's `ast.literal_eval`, so
-> they must be a literal 2-tuple such as `"(0x0010, 0x0010)"` (hex) or
-> `"(16, 16)"` (decimal) -- **not** the zero-padded `"(0010,0010)"` form
-> often used in DICOM documentation, which Python rejects as an invalid
-> decimal literal.
 
 ---
 
@@ -92,17 +111,21 @@ Rules can also be stored in a JSON file.
 
 ```json
 {
-  "(0x0010,0x0010)": {
+  "PatientName": {
     "action": "replace_with_value",
     "value": "Anonymous"
   },
-  "(0x0008,0x1030)": {
+  "StudyDescription": {
     "action": "regexp",
     "find": ".*",
     "replace": "REDACTED"
-  }
+  },
+  "(0x0009, 0x0010)": "empty"
 }
 ```
+
+The last entry above is a private tag -- no standard keyword exists for it,
+so it has to be given as a literal tuple.
 
 Example:
 
@@ -513,7 +536,7 @@ docker run --rm \
     -v $PWD/incoming:/incoming:ro \
     -v $PWD/outgoing:/outgoing \
     ghcr.io/fnndsc/pl-dicom_anonymize:latest \
-    --dictionary '{"(0x0010,0x0010)":"replace"}' \
+    --dictionary '{"PatientName":"replace"}' \
     /incoming /outgoing
 ```
 
@@ -550,6 +573,27 @@ docker run --rm \
     pl-dicom_anonymize:dev \
     pytest -v -o cache_dir=/tmp/pytest
 ```
+
+Two things about this command are load-bearing, not optional style:
+
+* **The volume mount is required.** The `Dockerfile`'s final build step
+  installs the plugin non-editably (`pip install .`) and then deletes the
+  entire source tree it was built from (`rm -rf ${SRCDIR}`), leaving
+  `WORKDIR /`. A built image contains no `tests/` directory at all -- run
+  `pytest` against it with nothing mounted and it collects zero tests and
+  exits `5` (`no tests ran`), not a passing empty run.
+* **`-o cache_dir=/tmp/pytest` is required given the `:ro` mount.** Without
+  it, pytest tries to create its own `.pytest_cache/` inside the read-only
+  `/app` and fails outright. (Test *collection* itself is fine read-only --
+  Python and pytest's assertion-rewriting importer both silently skip
+  writing `__pycache__` bytecode when they hit a permission error rather
+  than raising.)
+
+Because the installed package is whatever was baked in at the last
+`docker build`, not the live contents of the mount, this two-step sequence
+(build, then test) always tests what you just built. If you edit
+`dicom_anonymize.py` and only re-run the second command, you're testing the
+previous build, not your edit -- rebuild first.
 
 ## Dependencies, licensing, and maintenance
 

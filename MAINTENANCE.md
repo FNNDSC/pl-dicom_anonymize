@@ -76,23 +76,48 @@ downstream pipeline records.
 
 ## Regenerating the SBOM
 
+**This is currently a manual step, not automated in CI.** An earlier CI
+job auto-regenerated `sbom.cdx.json` on every run, but it had a real bug
+(the frozen dependency list it built included the plugin's own
+non-PyPI-published package, `dicom_anonymize` itself, which made the
+`pip install -r` inside that step fail outright) and was removed rather
+than fixed (see git history around `fe027e7`, "fix CI build issues").
+`scripts/finalize_sbom.py` still contains the corrected logic, kept for
+manual/local use until CI automation is reinstated -- if reinstating it,
+see that script's own docstring for the two gotchas it exists to avoid
+(the plugin's own package poisoning the frozen list, and `cyclonedx-bom`
+polluting its own scan if installed into the venv being scanned).
+
 The SBOM (`sbom.cdx.json`, CycloneDX JSON) must reflect the actual installed
 runtime closure, not just the three lines in `requirements.txt` -- `pydicom`
 and `tqdm` are transitive and won't show up if you generate it by parsing
 `requirements.txt` as text.
 
 ```bash
-python3 -m venv /tmp/clean-venv
-/tmp/clean-venv/bin/pip install -r requirements.txt
-pip install cyclonedx-bom  # into your own environment, not the clean one
-cyclonedx-py environment /tmp/clean-venv \
+# The venv being reported on: ONLY the plugin's pinned runtime deps.
+python3 -m venv /tmp/sbom-venv
+/tmp/sbom-venv/bin/pip install -r requirements.txt
+
+# cyclonedx-bom goes in a SEPARATE venv from the one being scanned --
+# installing it alongside the runtime deps pollutes the SBOM with
+# cyclonedx-bom's own dependencies (this happened with `arrow` during
+# development; it is not a dependency of this plugin).
+python3 -m venv /tmp/sbom-tool-venv
+/tmp/sbom-tool-venv/bin/pip install cyclonedx-bom
+/tmp/sbom-tool-venv/bin/cyclonedx-py environment /tmp/sbom-venv \
     --output-format json --output-file sbom.cdx.json
+
+python3 scripts/finalize_sbom.py sbom.cdx.json "$(python3 -c 'from dicom_anonymize import __version__; print(__version__)')"
 ```
 
-Then manually strip the `pip` component itself (it's a build tool, not a
-runtime dependency of the shipped image) and confirm every component's
-`licenses` field is populated -- `cyclonedx-py` occasionally can't resolve a
-package's license from its metadata (this happened for `tqdm`; its license
+`scripts/finalize_sbom.py` strips the `pip` component (bootstrapped into
+every venv, not a real dependency) and fills in `metadata.component` with
+this plugin's own name/version, which `cyclonedx-py` has no way to know on
+its own.
+
+Confirm every component's `licenses` field is populated after regenerating
+-- `cyclonedx-py` occasionally can't resolve a package's license from its
+metadata (this happened for `tqdm`; its license
 had to be filled in by hand from its `dist-info/licenses/LICENCE` file, not
 left blank). Update `NOTICES.md`'s table and `third_party_licenses/` to
 match afterwards.
@@ -104,4 +129,7 @@ match afterwards.
 exact pinned dependencies that ship -- not against whatever happens to be on
 the runner. A green run there is the actual gate; running `pytest` locally
 against a different environment is a useful sanity check but not a
-substitute. 
+substitute. The `build` job's `needs: [test]` means a red `test` run blocks
+the image push -- don't remove that dependency to unblock a failing build;
+fix the actual failure instead (see the SBOM-step removal noted above for
+an example of the alternative going wrong).
