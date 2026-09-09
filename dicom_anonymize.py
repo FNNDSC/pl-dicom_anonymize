@@ -25,7 +25,7 @@ from safety import (
     verify_deidentified,
 )
 
-__version__ = '1.1.0'
+__version__ = '1.2.0'
 
 # The exact upstream dicom-anonymizer release this plugin is validated
 # against. Kept as a constant (rather than only living in requirements.txt)
